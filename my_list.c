@@ -26,24 +26,42 @@
 #define VALUE_FOUND 	1
 #define VALUE_NOT_FOUND	0
 
-
 //******************************************************************************
 //----------------------------------<MACROS>------------------------------------
 //******************************************************************************
+
+#define link_node(prev,node,curr)	((node)->next = (curr);\
+									 (node)->prev = (prev);\
+									 (curr)->prev = (node);\
+									 (prev)->next = (node))
+
+#define unlink_node(prev,curr)		((prev)->next = (curr)->next;\
+									 (curr)->next->prev = (prev))
 
 #define get_first_node(list) 	((list)->first_anchor_->next)
 #define get_last_node(list)		((list)->last_anchor_->prev)
 #define get_first_anchor(list) 	((list)->first_anchor_)
 #define get_last_anchor(list)	((list)->last_anchor_)
 
+#define init_data_lock(node)	(pthread_mutex_init(&((node)->data_lock_), NULL))
 #define lock_data(node)			(pthread_mutex_lock(&((node)->data_lock_)))
 #define unlock_data(node)		(pthread_mutex_unlock(&((node)->data_lock_)))
+#define destroy_data_lock(node)	(pthread_mutex_destroy(&((node)->data_lock_)))
 
+#define init_node_lock(node)	(pthread_mutex_init(&((node)->node_lock_), NULL))
 #define lock_node(node)			(pthread_mutex_lock(&((node)->node_lock_)))
 #define unlock_node(node)		(pthread_mutex_unlock(&((node)->node_lock_)))
+#define destroy_node_lock(node)	(pthread_mutex_destroy(&((node)->node_lock_)))
 
+#define init_cont_lock(list)	(pthread_mutex_init(&((list)->main_lock_), NULL))
 #define lock_container(list)	(pthread_mutex_lock(&((list)->main_lock_)))
 #define unlock_container(list)	(pthread_mutex_unlock(&((list)->main_lock_)))
+#define destroy_cont_lock(list) (pthread_mutex_destroy(&((list)->main_lock_)))
+
+#define init_node_locks(node)	 (init_data_lock(node);\
+								  init_node_lock(node))
+#define destroy_node_locks(node) (destroy_data_lock(node);\
+								  destroy_node_lock(node))
 
 #define size_inc(list)			((list)->size++)
 #define size_dec(list)			((list)->size--)
@@ -83,6 +101,22 @@ struct linked_list_t{
 //---------------------------------<FUNCTION>-----------------------------------
 //******************************************************************************
 
+static inline void init_first_anchor(linked_list_t* list){
+	list->first_anchor_->prev 	= NULL;
+	list->first_anchor_->next 	= get_last_anchor;
+	list->first_anchor_->list	= list;
+	list->first_anchor_->key	= INT_MIN;
+	init_node_locks(list->first_anchor_);
+}
+
+static inline void init_last_anchor(linked_list_t* list){
+	list->last_anchor_->prev 	= get_first_anchor;
+	list->last_anchor_->next 	= NULL;
+	list->last_anchor_->list	= list;
+	list->last_anchor_->key		= INT_MAX;
+	init_node_locks(list->last_anchor_);
+}
+
 /**
  * list_alloc : Creates a new linked list.
  *
@@ -103,17 +137,9 @@ linked_list_t* list_alloc(){
 		free(list);
 		return NULL;
 	}
-	list->first_anchor_->prev 	= NULL;
-	list->first_anchor_->next 	= get_last_anchor;
-	list->first_anchor_->list	= list;
-	list->first_anchor_->key	= INT_MIN;
-	list->last_anchor_->prev 	= get_first_anchor;
-	list->last_anchor_->next 	= NULL;
-	list->last_anchor_->list	= list;
-	list->last_anchor_->key		= INT_MAX;
-	pthread_mutex_init(&(list->first_anchor_->node_lock_), NULL);
-	pthread_mutex_init(&(list->last_anchor_->node_lock_), NULL);
-	pthread_mutex_init(&(list->main_lock_), NULL);
+	init_first_anchor(list);
+	init_last_anchor(list);
+	init_cont_lock(list);
 	list->size_=0;
 	return list;
 }
@@ -139,14 +165,18 @@ void list_free(linked_list_t* list){
 			lock_node(curr); 	// so if the node currently in use the process will wait.
 			prev = curr;
 			curr = curr->next_;
+			destroy_node_locks(prev);
 			free(prev);
 		}
 	}
+	destroy_node_locks(get_first_anchor(list));
 	free(get_first_anchor(list));
 	list->first_anchor_= NULL;
+	destroy_node_locks(get_last_anchor(list));
 	free(get_last_anchor(list));
 	list->last_anchor_= NULL;
 	unlock_container(list); 		//so all waiting process can at least wake up.
+	destroy_cont_lock(list);
 	free(list);
 }
 
@@ -164,8 +194,33 @@ void list_free(linked_list_t* list){
  * return value	: 0 in case of success or anything else in case of failure.
  */
 int list_split(linked_list_t* list, int n, linked_list_t** arr){
-	if (!list){
+	if (!list || !arr){
 		return PARAM_ERROR;
+	}
+	if (n <=0){
+		return PARAM_ERROR;
+	}
+	int i;
+	for(i=0;i<n;i++){
+		arr[i] = list_alloc();
+		if (!(arr[i]){
+			return ALLOC_ERROR;
+		}
+	}
+	i=0;
+	linked_list_node prev = get_first_anchor(list);
+	lock_node(prev);
+	linked_list_node curr = get_first_node(list);
+	lock_node(curr);
+	while(curr != get_last_anchor(list)){
+		unlink_node(prev,curr);
+		link_node((get_last_anchor(arr[i])->prev),(curr),(get_last_anchor(arr[i])));
+		curr->list_=arr[i++];
+		i%=n;
+		curr = curr->next;
+		lock_node(curr);
+		unlock_node(prev);
+		prev = curr->prev;
 	}
 }
 
@@ -190,8 +245,7 @@ int list_insert(linked_list_t* list, int key, void* data){
 	new_node->data_ = data;
 	new_node->key_ 	= key;
 	new_node->list_ = list;
-	pthread_mutex_init(&(new_node->node_lock_), NULL);
-	pthread_mutex_init(&(new_node->data_lock_), NULL);
+	init_node_locks(new_node);
 	//lock_container(list);		// need to check if list_free was not called
 	linked_list_node prev = get_first_anchor(list);
 	lock_node(prev);
@@ -205,10 +259,7 @@ int list_insert(linked_list_t* list, int key, void* data){
 			return INSERT_ERROR;	// key already in use
 		}
 		if(key < curr->key_){
-			new_node->next = curr;
-			new_node->prev = prev;
-			curr->prev = new_node;
-			prev->next = new_node;
+			link_node(prev,new_node,curr);
 			unlock_node(curr);
 			unlock_node(prev);
 			lock_container(list);
@@ -246,10 +297,10 @@ int list_remove(linked_list_t* list, int key){
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
-			prev->next = curr->next;
-			curr->next->prev = prev;
+			unlink_node(prev,curr);
 			unlock_node(curr);
 			unlock_node(prev);
+			destroy_node_locks(curr);
 			free (curr);
 			lock_container(list);
 			size_dec(list);
@@ -383,10 +434,12 @@ int list_compute(linked_list_t* list, int key, int (*compute_func) (void *), int
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
+			void* data = curr->data;
 			lock_data(curr);		// gonna be a problem here!!!
 			unlock_node(curr);
 			unlock_node(prev);
-			*result = compute_func(curr->data);
+			*result = compute_func(data);
+			unlock_data(curr);
 			return SUCCES;
 		}
 		curr = curr->next;
@@ -420,6 +473,9 @@ int list_compute(linked_list_t* list, int key, int (*compute_func) (void *), int
  * return value	: 0 in case of success or anything else in case of failure.
  */
 void list_batch(linked_list_t* list, int num_ops, op_t* ops);
+
+
+
 
 //******************************************************************************
 //---------------------------------<PREVIOUS>-----------------------------------
