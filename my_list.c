@@ -9,6 +9,7 @@
 //******************************************************************************
 #include <stdlib.h>
 #include "list.h"
+#include <limits.h>
 
 //******************************************************************************
 //----------------------------------<DEFINE>------------------------------------
@@ -19,21 +20,26 @@
 #define ALLOC_ERROR 	2
 #define INSERT_ERROR	3
 #define REMOVE_ERROR	4
+#define FAILURE_ERROR	-1
+
 
 //******************************************************************************
 //----------------------------------<MACROS>------------------------------------
 //******************************************************************************
 
-#define get_first_node	(list) 	((list)->first_anchor_->next)
-#define get_last_node	(list)	((list)->last_anchor_->prev)
+#define get_first_node(list) 	((list)->first_anchor_->next)
+#define get_last_node(list)		((list)->last_anchor_->prev)
 #define get_first_anchor(list) 	((list)->first_anchor_)
-#define get_last_anchor	(list)	((list)->last_anchor_)
+#define get_last_anchor(list)	((list)->last_anchor_)
 
-#define lock_node		(node)
-#define unlock_node		(node)
+#define lock_node(node)
+#define unlock_node(node)
 
-#define lock_container	(list)
+#define lock_container(list)
 #define unlock_container(list)
+
+#define size_inc(list)		((list)->size++)
+#define size_dec(list)		((list)->size--)
 
 //******************************************************************************
 //----------------------------------<STRUCT>------------------------------------
@@ -90,13 +96,19 @@ linked_list_t* list_alloc(){
 		free(list);
 		return NULL;
 	}
+
 	list->first_anchor_->prev 	= NULL;
-	list->first_anchor_->next 	= NULL;
+	list->first_anchor_->next 	= get_last_anchor;
 	list->first_anchor_->list	= list;
-	list->last_anchor_->prev 	= NULL;
+	list->first_anchor_->key	= INT_MIN;
+
+	list->last_anchor_->prev 	= get_first_anchor;
 	list->last_anchor_->next 	= NULL;
 	list->last_anchor_->list	= list;
+	list->last_anchor_->key		= INT_MAX;
+
 	list->size_=0;
+
 	return list;
 }
 
@@ -165,109 +177,44 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
  */
 int list_insert(linked_list_t* list, int key, void* data){
 	if (!list || !data)
-		return PARAM_ERROR;	// Null passed as parameter
+		return PARAM_ERROR;
 	linked_list_node new_node = (linked_list_node) malloc(sizeof(*new_node));
 	if(!new_node)
 		return ALLOC_ERROR;
 	new_node->data_ = data;
 	new_node->key_ 	= key;
 	new_node->list_ = list;
-	//lock the main lock here
-	if(list->size_==0)
-		return list_insert_only(list,new_node);
-	linked_list_node curr = list->first_;
-	linked_list_node prev = NULL;
-	//lock the node 'curr' here
-	while(true){
+	//lock_container(list);		// need to check if list_free was not called
+	linked_list_node prev = get_first_anchor(list);
+	lock_node(prev);
+	linked_list_node curr = get_first_node(list);
+	lock_node(curr);
+	while(curr){
 		if(key == curr->key_){
-			//unlock the node 'curr' here
-			if(!prev)
-				//unlock the main lock here
-			else
-				//unlock the node 'prev' here
+			unlock_node(curr);
+			unlock_node(prev);
 			free (new_node);
-			return -3;	// key already in use
+			return INSERT_ERROR;	// key already in use
 		}
 		if(key < curr->key_){
-			if(!prev)
-				return list_insert_first(list,new_node);
-			else
-				return list_insert_curr(list,new_node);
+			new_node->next = curr;
+			new_node->prev = prev;
+			curr->prev = new_node;
+			prev->next = new_node;
+			unlock_node(curr);
+			unlock_node(prev);
+			lock_container(list);
+			size_inc(list);
+			unlock_container(list);
+			return SUCCES;
 		}
 		curr = curr->next;
-		if (!curr)
-			break;
-		//lock the node 'curr' here
-		if(!prev)
-			//unlock the main lock here
-		else
-			//unlock the node 'prev' here
-		prev = curr->next->prev;
+		lock_node(curr);
+		unlock_node(prev);
+		prev = curr->prev;
 	}
-	return list_insert_last(list,new_node);
+	return FAILURE_ERROR;
 }
-
-int list_insert_only(linked_list_t* list, linked_list_node new_node){
-	new_node->next_ = NULL;
-	new_node->prev_ = NULL;
-	list->first_ = new_node;
-	list->last_ = new_node;
-	//unlock the main lock here
-	return 0;
-}
-
-int list_insert_first(linked_list_t* list, linked_list_node new_node){
-	new_node->next_ = list->first_;
-	new_node->prev_ = NULL;
-	list->first_->prev = new_node;
-	list->first_ = new_node;
-	//unlock the node 'curr' here
-	//unlock the main lock here
-	return 0;
-}
-
-int list_insert_last(linked_list_t* list, linked_list_node new_node){
-	new_node->next_ = NULL;
-	new_node->prev_ = list->last_;
-	list->last_->next_ = new_node;
-	list->last_ = new_node;
-	return 0;
-}
-
-int list_insert_curr(linked_list_t* list, linked_list_node new_node){
-	//unlock the node 'curr' here
-	//unlock the node 'prev' here
-}
-
-int list_remove_only(linked_list_t* list){
-	free (list->first_);
-	list->first_ = NULL;
-	list->last_ = NULL;
-	return 0;
-}
-
-int list_remove_first(linked_list_t* list){
-	linked_list_node to_remove = list->first_;
-	list->first_ = list->first_->next_;
-	list->first_->prev_ = NULL;
-	free (to_remove);
-	return 0;
-}
-
-int list_remove_last(linked_list_t* list){
-	linked_list_node to_remove = list->last_;
-	list->last_ = list->last_->prev_;
-	list->last_->next_ = NULL;
-	free (to_remove);
-	return 0;
-}
-
-int list_remove_curr(linked_list_t* list, linked_list_node new_node){
-
-}
-
-
-
 
 /**
  * list_remove : Removes a new node with the given key from the given list.
