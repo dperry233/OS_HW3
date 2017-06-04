@@ -227,7 +227,34 @@ int list_insert(linked_list_t* list, int key, void* data){
  *
  * return value	: 0 in case of success or anything else in case of failure.
  */
-int list_remove(linked_list_t* list, int key);
+int list_remove(linked_list_t* list, int key){
+	if (!list){
+		return PARAM_ERROR;
+	}
+	//lock_container(list);		// need to check if list_free was not called
+	linked_list_node prev = get_first_anchor(list);
+	lock_node(prev);
+	linked_list_node curr = get_first_node(list);
+	lock_node(curr);
+	while(curr != get_last_anchor(lsit)){
+		if(key == curr->key_){
+			prev->next = curr->next;
+			curr->next->prev = prev;
+			unlock_node(curr);
+			unlock_node(prev);
+			free (curr);
+			lock_container(list);
+			size_dec(list);
+			unlock_container(list);
+			return SUCCES;
+		}
+		curr = curr->next;
+		lock_node(curr);
+		unlock_node(prev);
+		prev = curr->prev;
+	}
+	return REMOVE_ERROR;
+}
 
 /**
  * list_find : Checks if a node with the given key exist in the given list.
