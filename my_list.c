@@ -20,7 +20,11 @@
 #define ALLOC_ERROR 	2
 #define INSERT_ERROR	3
 #define REMOVE_ERROR	4
+#define NOT_EX_ERROR	5
 #define FAILURE_ERROR	-1
+
+#define VALUE_FOUND 	1
+#define VALUE_NOT_FOUND	0
 
 
 //******************************************************************************
@@ -32,14 +36,17 @@
 #define get_first_anchor(list) 	((list)->first_anchor_)
 #define get_last_anchor(list)	((list)->last_anchor_)
 
-#define lock_node(node)
-#define unlock_node(node)
+#define lock_data(node)			(pthread_mutex_lock(&((node)->data_lock_)))
+#define unlock_data(node)		(pthread_mutex_unlock(&((node)->data_lock_)))
 
-#define lock_container(list)
-#define unlock_container(list)
+#define lock_node(node)			(pthread_mutex_lock(&((node)->node_lock_)))
+#define unlock_node(node)		(pthread_mutex_unlock(&((node)->node_lock_)))
 
-#define size_inc(list)		((list)->size++)
-#define size_dec(list)		((list)->size--)
+#define lock_container(list)	(pthread_mutex_lock(&((list)->main_lock_)))
+#define unlock_container(list)	(pthread_mutex_unlock(&((list)->main_lock_)))
+
+#define size_inc(list)			((list)->size++)
+#define size_dec(list)			((list)->size--)
 
 //******************************************************************************
 //----------------------------------<STRUCT>------------------------------------
@@ -55,11 +62,11 @@ typedef linked_list_t* linked_list;
 struct linked_list_node_t{
 	int 				key_;
 	void* 				data_;
-	pthread_mutex_t 	data_lock;
+	pthread_mutex_t 	data_lock_;
 	linked_list_node 	prev_;
 	linked_list_node 	next_;
 	linked_list			list_;
-	pthread_mutex_t 	node_lock;
+	pthread_mutex_t 	node_lock_;
 };
 
 /**
@@ -68,7 +75,7 @@ struct linked_list_node_t{
 struct linked_list_t{
 	linked_list_node first_anchor_;
 	linked_list_node last_anchor_;
-	pthread_mutex_t  main_lock;
+	pthread_mutex_t  main_lock_;
 	int size_;
 };
 
@@ -96,19 +103,18 @@ linked_list_t* list_alloc(){
 		free(list);
 		return NULL;
 	}
-
 	list->first_anchor_->prev 	= NULL;
 	list->first_anchor_->next 	= get_last_anchor;
 	list->first_anchor_->list	= list;
 	list->first_anchor_->key	= INT_MIN;
-
 	list->last_anchor_->prev 	= get_first_anchor;
 	list->last_anchor_->next 	= NULL;
 	list->last_anchor_->list	= list;
 	list->last_anchor_->key		= INT_MAX;
-
+	pthread_mutex_init(&(list->first_anchor_->node_lock_), NULL);
+	pthread_mutex_init(&(list->last_anchor_->node_lock_), NULL);
+	pthread_mutex_init(&(list->main_lock_), NULL);
 	list->size_=0;
-
 	return list;
 }
 
@@ -184,6 +190,8 @@ int list_insert(linked_list_t* list, int key, void* data){
 	new_node->data_ = data;
 	new_node->key_ 	= key;
 	new_node->list_ = list;
+	pthread_mutex_init(&(new_node->node_lock_), NULL);
+	pthread_mutex_init(&(new_node->data_lock_), NULL);
 	//lock_container(list);		// need to check if list_free was not called
 	linked_list_node prev = get_first_anchor(list);
 	lock_node(prev);
@@ -236,7 +244,7 @@ int list_remove(linked_list_t* list, int key){
 	lock_node(prev);
 	linked_list_node curr = get_first_node(list);
 	lock_node(curr);
-	while(curr != get_last_anchor(lsit)){
+	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
 			prev->next = curr->next;
 			curr->next->prev = prev;
@@ -253,6 +261,8 @@ int list_remove(linked_list_t* list, int key){
 		unlock_node(prev);
 		prev = curr->prev;
 	}
+	unlock_node(curr);
+	unlock_node(prev);
 	return REMOVE_ERROR;
 }
 
@@ -266,7 +276,30 @@ int list_remove(linked_list_t* list, int key){
  *
  * return value	: 1 in case a node with the given key found or 0 otherwise.
  */
-int list_find(linked_list_t* list, int key);
+int list_find(linked_list_t* list, int key){
+	if (!list){
+		return PARAM_ERROR;
+	}
+	//lock_container(list);		// need to check if list_free was not called
+	linked_list_node prev = get_first_anchor(list);
+	lock_node(prev);
+	linked_list_node curr = get_first_node(list);
+	lock_node(curr);
+	while(curr != get_last_anchor(list)){
+		if(key == curr->key_){
+			unlock_node(curr);
+			unlock_node(prev);
+			return VALUE_FOUND;
+		}
+		curr = curr->next;
+		lock_node(curr);
+		unlock_node(prev);
+		prev = curr->prev;
+	}
+	unlock_node(curr);
+	unlock_node(prev);
+	return VALUE_NOT_FOUND;
+}
 
 /**
  * list_size : Returns the number of nodes in the given list.
@@ -277,7 +310,16 @@ int list_find(linked_list_t* list, int key);
  *
  * return value	: The number of nodes in the given list.
  */
-int list_size(linked_list_t* list);
+int list_size(linked_list_t* list){
+	if (!list){
+		return PARAM_ERROR;
+	}
+	//lock_container(list);		// need to check if list_free was not called
+	lock_container(list);
+	size = list->size_;
+	unlock_container(list);
+	return size;
+}
 
 /**
  * list_update : Sets the given data as the new data of the node with the given
@@ -291,7 +333,31 @@ int list_size(linked_list_t* list);
  *
  * return value	: 0 in case of success or anything else in case of failure.
  */
-int list_update(linked_list_t* list, int key, void* data);
+int list_update(linked_list_t* list, int key, void* data){
+	if (!list || !data){
+		return PARAM_ERROR;
+	}
+	//lock_container(list);		// need to check if list_free was not called
+	linked_list_node prev = get_first_anchor(list);
+	lock_node(prev);
+	linked_list_node curr = get_first_node(list);
+	lock_node(curr);
+	while(curr != get_last_anchor(list)){
+		if(key == curr->key_){
+			curr->data = data;
+			unlock_node(curr);
+			unlock_node(prev);
+			return SUCCES;
+		}
+		curr = curr->next;
+		lock_node(curr);
+		unlock_node(prev);
+		prev = curr->prev;
+	}
+	unlock_node(curr);
+	unlock_node(prev);
+	return NOT_EX_ERROR;
+}
 
 /**
  * list_compute : Computes the data of the node with the given key, using the
@@ -306,7 +372,32 @@ int list_update(linked_list_t* list, int key, void* data);
  *
  * return value	: 0 in case of success or anything else in case of failure.
  */
-int list_compute(linked_list_t* list, int key, int (*compute_func) (void *), int* result);
+int list_compute(linked_list_t* list, int key, int (*compute_func) (void *), int* result){
+	if (!list || !compute_func || !result){
+		return PARAM_ERROR;
+	}
+	//lock_container(list);		// need to check if list_free was not called
+	linked_list_node prev = get_first_anchor(list);
+	lock_node(prev);
+	linked_list_node curr = get_first_node(list);
+	lock_node(curr);
+	while(curr != get_last_anchor(list)){
+		if(key == curr->key_){
+			lock_data(curr);		// gonna be a problem here!!!
+			unlock_node(curr);
+			unlock_node(prev);
+			*result = compute_func(curr->data);
+			return SUCCES;
+		}
+		curr = curr->next;
+		lock_node(curr);
+		unlock_node(prev);
+		prev = curr->prev;
+	}
+	unlock_node(curr);
+	unlock_node(prev);
+	return NOT_EX_ERROR;
+}
 
 /**
  * list_batch : Performs a several different operations on the list.
