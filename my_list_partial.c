@@ -37,6 +37,7 @@ void* batch_wrapper(void* param){
 			curr_op->data = (void*)(long long)compute_result;
 		}
 
+		free(param);
 }
 
 
@@ -71,7 +72,11 @@ void list_batch(linked_list_t* list, int num_ops, op_t* ops){
 	pthread_t threads[num_ops];
 	for(i=0;i<num_ops;i++){
 		
-		pthread_create(&threads[i], NULL,batch_wrapper, (void*)ops+i);
+
+		op_wrapper_t* wrapper=(int *)malloc(sizeof(*op_wrapper_t));
+		wrapper->list= list;
+		wrapper->op=ops+i;
+		pthread_create(&threads[i], NULL,batch_wrapper, (void*)wrapper);
 	}
 	for(i=0;i<num_ops;i++){
 		pthread_join(threads[i], NULL);
