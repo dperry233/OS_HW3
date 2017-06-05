@@ -4,17 +4,18 @@
 /*                                                                            */
 /******************************************************************************/
 
-//******************************************************************************
-//----------------------------------<INCLUDE>-----------------------------------
-//******************************************************************************
+//*****************************************************************************/
+//----------------------------------<INCLUDE>---------------------------------*/
+//*****************************************************************************/
+
 #include <stdlib.h>
 #include <limits.h>
 #include <pthread.h>
 #include "my_list.h"
 
-//******************************************************************************
-//----------------------------------<DEFINE>------------------------------------
-//******************************************************************************
+//*****************************************************************************/
+//----------------------------------<DEFINE>----------------------------------*/
+//*****************************************************************************/
 
 #define SUCCES			0
 #define PARAM_ERROR 	1
@@ -22,14 +23,15 @@
 #define INSERT_ERROR	3
 #define REMOVE_ERROR	4
 #define NOT_EX_ERROR	5
-#define FAILURE_ERROR	-1
+#define LIST_FREE_ERROR 6
+#define FAILURE_ERROR  -1
 
 #define VALUE_FOUND 	1
 #define VALUE_NOT_FOUND	0
 
-//******************************************************************************
-//----------------------------------<MACROS>------------------------------------
-//******************************************************************************
+//*****************************************************************************/
+//----------------------------------<MACROS>----------------------------------*/
+//*****************************************************************************/
 
 #define link_node(prev,node,curr)	 (node)->next_ = (curr);\
 									 (node)->prev_ = (prev);\
@@ -68,12 +70,14 @@
 #define size_inc(list)			(((list)->size_)++)
 #define size_dec(list)			(((list)->size_)--)
 
-//******************************************************************************
-//----------------------------------<STRUCT>------------------------------------
-//******************************************************************************
+//*****************************************************************************/
+//----------------------------------<STRUCT>----------------------------------*/
+//*****************************************************************************/
+
 typedef struct linked_list_node_t* linked_list_node;
 
 typedef struct linked_list_t* linked_list;
+
 /**
  * linked_list_node_t : defination of a single node in the linked list.
  */
@@ -97,11 +101,13 @@ struct linked_list_t{
 	int size_;
 };
 
+//*****************************************************************************/
+//---------------------------------<FUNCTION>---------------------------------*/
+//*****************************************************************************/
 
-//******************************************************************************
-//---------------------------------<FUNCTION>-----------------------------------
-//******************************************************************************
-
+/**
+ * init_first_anchor : initializes the anchor at the beginning of the link list.
+ */
 static inline void init_first_anchor(linked_list list){
 	list->first_anchor_->prev_ 	= NULL;
 	list->first_anchor_->next_ 	= get_last_anchor(list);
@@ -110,6 +116,9 @@ static inline void init_first_anchor(linked_list list){
 	init_node_locks(list->first_anchor_);
 }
 
+/**
+ * init_last_anchor : initializes the anchor at the end of the link list.
+ */
 static inline void init_last_anchor(linked_list list){
 	list->last_anchor_->prev_ 	= get_first_anchor(list);
 	list->last_anchor_->next_ 	= NULL;
@@ -155,28 +164,43 @@ linked_list_t* list_alloc(){
  * return value	: N/A
  */
 void list_free(linked_list_t* list){
-	if (!list){
+	if (!list)
+		return;
+
+	linked_list_node first_anchor, last_anchor, prev, curr;
+
+	lock_container(list);
+	prev = get_first_anchor(list);
+	if(!prev){	// if the lock was acquired after the list was freed
+		unlock_container(list);
 		return;
 	}
-	lock_container(list);	//so no new actions can be done on the list from this point.
-	if(list->size_!=0){
-		linked_list_node curr = get_first_node(list);
-		linked_list_node prev = get_first_anchor(list);
-		while(curr != get_last_anchor(list)){
-			lock_node(curr); 	// so if the node currently in use the process will wait.
-			prev = curr;
-			curr = curr->next_;
-			destroy_node_locks(prev);
-			free(prev);
-		}
+	first_anchor = get_first_anchor(list);
+	last_anchor  = get_last_anchor(list);
+	get_first_anchor(list) = NULL;	// unlink anchor from list
+	get_last_anchor(list) = NULL;	// unlink anchor from list
+	lock_node(prev);
+	unlock_container(list);
+
+	curr = get_first_node(list);
+
+	while(curr != last_anchor){
+		lock_node(curr); 	// so if the node currently in use the process will wait.
+		prev = curr;
+		curr = curr->next_;
+		unlock_node(prev);
+		destroy_node_locks(prev);
+		free(prev);
 	}
-	destroy_node_locks(get_first_anchor(list));
-	free(get_first_anchor(list));
-	list->first_anchor_= NULL;
-	destroy_node_locks(get_last_anchor(list));
-	free(get_last_anchor(list));
-	list->last_anchor_= NULL;
-	unlock_container(list); 		//so all waiting process can at least wake up.
+
+	unlock_node(first_anchor);
+	destroy_node_locks(first_anchor);
+	free(first_anchor);
+
+	unlock_node(last_anchor);
+	destroy_node_locks(last_anchor);
+	free(last_anchor);
+
 	destroy_cont_lock(list);
 	free(list);
 }
@@ -195,25 +219,39 @@ void list_free(linked_list_t* list){
  * return value	: 0 in case of success or anything else in case of failure.
  */
 int list_split(linked_list_t* list, int n, linked_list_t** arr){
-	if (!list || !arr){
+	if (!list || !arr || n <=0)
 		return PARAM_ERROR;
-	}
-	if (n <=0){
-		return PARAM_ERROR;
-	}
+
 	int i;
+	linked_list_node first_anchor, last_anchor, prev, curr;
+
+	lock_container(list);
+	prev = get_first_anchor(list);
+	if(!prev){	// if the lock was acquired after the list was freed
+		unlock_container(list);
+		return LIST_FREE_ERROR;
+	}
+	first_anchor = get_first_anchor(list);
+	last_anchor  = get_last_anchor(list);
+	get_first_anchor(list) = NULL;	// unlink anchor from list
+	get_last_anchor(list) = NULL;	// unlink anchor from list
+	lock_node(prev);
+	unlock_container(list);
+
+
 	for(i=0;i<n;i++){
 		arr[i] = list_alloc();
 		if (!(arr[i])){
+			for(;i>=0;i--)
+				list_free(arr[i]);
 			return ALLOC_ERROR;
 		}
 	}
 	i=0;
-	linked_list_node prev = get_first_anchor(list);
-	lock_node(prev);
-	linked_list_node curr = get_first_node(list);
-	lock_node(curr);
-	while(curr != get_last_anchor(list)){
+
+	curr = get_first_node(list);
+	lock_node(curr); 	// so if the node currently in use the process will wait.
+	while(curr != last_anchor){
 		unlink_node(prev,curr);
 		link_node((get_last_anchor(arr[i])->prev_),(curr),(get_last_anchor(arr[i])));
 		curr->list_=arr[i++];
@@ -223,6 +261,18 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
 		unlock_node(prev);
 		prev = curr->prev_;
 	}
+
+	unlock_node(first_anchor);
+	destroy_node_locks(first_anchor);
+	free(first_anchor);
+
+	unlock_node(last_anchor);
+	destroy_node_locks(last_anchor);
+	free(last_anchor);
+
+	destroy_cont_lock(list);
+	free(list);
+
 	return SUCCES;
 }
 
@@ -241,22 +291,36 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
 int list_insert(linked_list_t* list, int key, void* data){
 	if (!list || !data)
 		return PARAM_ERROR;
-	linked_list_node new_node = (linked_list_node) malloc(sizeof(*new_node));
+
+	linked_list_node prev, curr, new_node;
+
+	new_node = (linked_list_node) malloc(sizeof(*new_node));
 	if(!new_node)
 		return ALLOC_ERROR;
 	new_node->data_ = data;
 	new_node->key_ 	= key;
 	new_node->list_ = list;
 	init_node_locks(new_node);
-	//lock_container(list);		// need to check if list_free was not called
-	linked_list_node prev = get_first_anchor(list);
+
+	lock_container(list);
+	prev = get_first_anchor(list);
+	if(!prev){	// if the lock was acquired after the list was freed
+		unlock_container(list);
+		destroy_node_locks(new_node);
+		free (new_node);
+		return LIST_FREE_ERROR;
+	}
 	lock_node(prev);
-	linked_list_node curr = get_first_node(list);
+	unlock_container(list);
+
+	curr = get_first_node(list);
 	lock_node(curr);
+
 	while(curr){
 		if(key == curr->key_){
 			unlock_node(curr);
 			unlock_node(prev);
+			destroy_node_locks(new_node);
 			free (new_node);
 			return INSERT_ERROR;	// key already in use
 		}
@@ -289,14 +353,23 @@ int list_insert(linked_list_t* list, int key, void* data){
  * return value	: 0 in case of success or anything else in case of failure.
  */
 int list_remove(linked_list_t* list, int key){
-	if (!list){
+	if (!list)
 		return PARAM_ERROR;
+
+	linked_list_node prev, curr;
+
+	lock_container(list);
+	prev = get_first_anchor(list);
+	if(!prev){	// if the lock was acquired after the list was freed
+		unlock_container(list);
+		return LIST_FREE_ERROR;
 	}
-	//lock_container(list);		// need to check if list_free was not called
-	linked_list_node prev = get_first_anchor(list);
 	lock_node(prev);
-	linked_list_node curr = get_first_node(list);
+	unlock_container(list);
+
+	curr = get_first_node(list);
 	lock_node(curr);
+
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
 			unlink_node(prev,curr);
@@ -330,14 +403,23 @@ int list_remove(linked_list_t* list, int key){
  * return value	: 1 in case a node with the given key found or 0 otherwise.
  */
 int list_find(linked_list_t* list, int key){
-	if (!list){
+	if (!list)
 		return PARAM_ERROR;
+
+	linked_list_node prev, curr;
+
+	lock_container(list);
+	prev = get_first_anchor(list);
+	if(!prev){	// if the lock was acquired after the list was freed
+		unlock_container(list);
+		return LIST_FREE_ERROR;
 	}
-	//lock_container(list);		// need to check if list_free was not called
-	linked_list_node prev = get_first_anchor(list);
 	lock_node(prev);
-	linked_list_node curr = get_first_node(list);
+	unlock_container(list);
+
+	curr = get_first_node(list);
 	lock_node(curr);
+
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
 			unlock_node(curr);
@@ -364,13 +446,14 @@ int list_find(linked_list_t* list, int key){
  * return value	: The number of nodes in the given list.
  */
 int list_size(linked_list_t* list){
-	if (!list){
+	if (!list)
 		return PARAM_ERROR;
-	}
-	//lock_container(list);		// need to check if list_free was not called
+
+	// there is a problem with this!
 	lock_container(list);
 	int size = list->size_;
 	unlock_container(list);
+
 	return size;
 }
 
@@ -387,14 +470,23 @@ int list_size(linked_list_t* list){
  * return value	: 0 in case of success or anything else in case of failure.
  */
 int list_update(linked_list_t* list, int key, void* data){
-	if (!list || !data){
+	if (!list || !data)
 		return PARAM_ERROR;
+
+	linked_list_node prev, curr;
+
+	lock_container(list);
+	prev = get_first_anchor(list);
+	if(!prev){	// if the lock was acquired after the list was freed
+		unlock_container(list);
+		return LIST_FREE_ERROR;
 	}
-	//lock_container(list);		// need to check if list_free was not called
-	linked_list_node prev = get_first_anchor(list);
 	lock_node(prev);
-	linked_list_node curr = get_first_node(list);
+	unlock_container(list);
+
+	curr = get_first_node(list);
 	lock_node(curr);
+
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
 			curr->data_ = data;
@@ -426,14 +518,23 @@ int list_update(linked_list_t* list, int key, void* data){
  * return value	: 0 in case of success or anything else in case of failure.
  */
 int list_compute(linked_list_t* list, int key, int (*compute_func) (void *), int* result){
-	if (!list || !compute_func || !result){
+	if (!list || !compute_func || !result)
 		return PARAM_ERROR;
+
+	linked_list_node prev, curr;
+
+	lock_container(list);
+	prev = get_first_anchor(list);
+	if(!prev){	// if the lock was acquired after the list was freed
+		unlock_container(list);
+		return LIST_FREE_ERROR;
 	}
-	//lock_container(list);		// need to check if list_free was not called
-	linked_list_node prev = get_first_anchor(list);
 	lock_node(prev);
-	linked_list_node curr = get_first_node(list);
+	unlock_container(list);
+
+	curr = get_first_node(list);
 	lock_node(curr);
+
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
 			void* data = curr->data_;
@@ -461,7 +562,6 @@ typedef struct op_wrapper_t
 	op_t* op;
 } op_wrapper_t;
 
-
 /**
  * wrapper function to be used for pthread_create in list_batch
  */
@@ -484,7 +584,7 @@ void* batch_wrapper(void* param){
 
 		if(curr_op->op==UPDATE){
 			curr_op->result = list_update(list, current_key, curr_op->data);
-			
+
 		}
 		int compute_result;
 		if(curr_op->op==COMPUTE){
@@ -494,9 +594,6 @@ void* batch_wrapper(void* param){
 
 		free(param);
 }
-
-
-
 
 
 /**
@@ -520,13 +617,12 @@ void* batch_wrapper(void* param){
  * return value	: 0 in case of success or anything else in case of failure.
  */
 void list_batch(linked_list_t* list, int num_ops, op_t* ops){
-	if (!list||num_ops<0||!ops){
-		return PARAM_ERROR;
-	}
+	if (!list||num_ops<0||!ops)
+		return;
+
 	int i;
 	pthread_t threads[num_ops];
 	for(i=0;i<num_ops;i++){
-		
 
 		op_wrapper_t* wrapper=(int *)malloc(sizeof(*op_wrapper_t));
 		wrapper->list= list;
@@ -536,9 +632,5 @@ void list_batch(linked_list_t* list, int num_ops, op_t* ops){
 	for(i=0;i<num_ops;i++){
 		pthread_join(threads[i], NULL);
 	}
-
-
-	return 0; 
-
 }
 
