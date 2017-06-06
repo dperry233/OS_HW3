@@ -528,9 +528,10 @@ typedef struct op_wrapper_t
  * wrapper function to be used for pthread_create in list_batch
  */
 void* batch_wrapper(void* param){
-	linked_list_t* list= (linked_list_t*)(param->op);
-	op_t* curr_op= (op_t*)(param->op);
-	int current_key = ((curr_op)->key
+	op_wrapper_t* wrapper= (op_wrapper_t*)param;
+	linked_list_t* list= (linked_list_t*)(wrapper->op);
+	op_t* curr_op= (op_t*)(wrapper->op);
+	int current_key = (curr_op)->key;
 
 		if(curr_op->op==INSERT){
 			curr_op->result =  list_insert(list, current_key, (curr_op->data));
@@ -586,7 +587,7 @@ void list_batch(linked_list_t* list, int num_ops, op_t* ops){
 	pthread_t threads[num_ops];
 	for(i=0;i<num_ops;i++){
 
-		op_wrapper_t* wrapper=(int *)malloc(sizeof(*op_wrapper_t));
+		op_wrapper_t* wrapper=(op_wrapper_t*)malloc(sizeof(op_wrapper_t));
 		wrapper->list= list;
 		wrapper->op=ops+i;
 		pthread_create(&threads[i], NULL,batch_wrapper, (void*)wrapper);
