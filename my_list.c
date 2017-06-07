@@ -151,7 +151,7 @@ static inline void destroy_node(linked_list_node node){
  * return value	: A new linked list.
  */
 linked_list_t* list_alloc(){
-	linked_list list = (linked_list) malloc(sizeof(list));
+	linked_list list = (linked_list) malloc(sizeof(*list));
 	if(!list)
 		return NULL;
 	list->first_anchor_	= (linked_list_node) malloc(sizeof(*(list->first_anchor_)));
