@@ -18,13 +18,13 @@
 //*****************************************************************************/
 
 #define SUCCES			0
-#define PARAM_ERROR 	1
-#define ALLOC_ERROR 	2
-#define INSERT_ERROR	3
-#define REMOVE_ERROR	4
-#define NOT_EX_ERROR	5
-#define LIST_FREE_ERROR 6
-#define FAILURE_ERROR  -1
+#define PARAM_ERROR 	-1
+#define ALLOC_ERROR 	-2
+#define INSERT_ERROR	-3
+#define REMOVE_ERROR	-4
+#define NOT_EX_ERROR	-5
+#define LIST_FREE_ERROR -6
+#define FAILURE_ERROR   -10
 
 #define VALUE_FOUND 	1
 #define VALUE_NOT_FOUND	0
@@ -219,15 +219,6 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
 	if (!list || !arr || n <=0)	return PARAM_ERROR;
 	int i;
 	linked_list_node anchor, prev, curr;
-	lock_container(list);
-	anchor = get_first_anchor(list);
-	if(!anchor){	// if the lock was acquired after the list was freed
-		unlock_container(list);
-		return LIST_FREE_ERROR;
-	}
-	get_first_anchor(list) = NULL;	// unlink anchor from list
-	lock_node(anchor);
-	unlock_container(list);
 	for(i=0;i<n;i++){
 		arr[i] = list_alloc();
 		if (!(arr[i])){
@@ -237,6 +228,15 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
 		}
 	}
 	i=0;
+	lock_container(list);
+	anchor = get_first_anchor(list);
+	if(!anchor){	// if the lock was acquired after the list was freed
+		unlock_container(list);
+		return LIST_FREE_ERROR;
+	}
+	get_first_anchor(list) = NULL;	// unlink anchor from list
+	lock_node(anchor);
+	unlock_container(list);
 	prev = anchor;
 	curr = anchor->next_;
 	lock_node(curr);	// so if the node currently in use the process will wait.
@@ -245,10 +245,9 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
 		link_node((get_last_anchor(arr[i])->prev_),(curr),(get_last_anchor(arr[i])));
 		curr->list_=arr[i++];
 		i%=n;
-		curr = curr->next_;
+		unlock_node(curr);
+		curr = prev->next_;
 		lock_node(curr);
-		unlock_node(prev);
-		prev = curr->prev_;
 	}
 	unlock_and_destroy(anchor);
 	unlock_and_destroy(curr);
