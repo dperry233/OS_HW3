@@ -243,7 +243,8 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
 	while(curr != get_last_anchor(list)){
 		unlink_node(prev,curr);
 		link_node((get_last_anchor(arr[i])->prev_),(curr),(get_last_anchor(arr[i])));
-		curr->list_=arr[i++];
+		curr->list_=arr[i];
+		i++;
 		i%=n;
 		unlock_node(curr);
 		curr = prev->next_;
