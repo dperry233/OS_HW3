@@ -12,6 +12,8 @@
 #include <limits.h>
 #include <pthread.h>
 #include "my_list.h"
+#include <stdio.h>
+
 
 //*****************************************************************************/
 //----------------------------------<DEFINE>----------------------------------*/
@@ -33,13 +35,14 @@
 //----------------------------------<MACROS>----------------------------------*/
 //*****************************************************************************/
 
-#define link_node(prev,node,curr)	 (node)->next_ = (curr);\
-									 (node)->prev_ = (prev);\
-									 (curr)->prev_ = (node);\
-									 (prev)->next_ = (node)
+#define link_node(prev,node,curr)	(node)->next_ = (curr);\
+									(node)->prev_ = (prev);\
+									(prev)->next_ = (node);\
+									(curr)->prev_ = (node)
 
-#define unlink_node(prev,curr)		 (prev)->next_ = (curr)->next_;\
-									 (curr)->next_->prev_ = (prev)
+
+#define unlink_node(node)			(node)->prev_->next_ = (node)->next_;\
+									(node)->next_->prev_ = (node)->prev_
 
 #define get_first_node(list) 	((list)->first_anchor_->next_)
 #define get_last_node(list)		((list)->last_anchor_->prev_)
@@ -218,7 +221,7 @@ void list_free(linked_list_t* list){
 int list_split(linked_list_t* list, int n, linked_list_t** arr){
 	if (!list || !arr || n <=0)	return PARAM_ERROR;
 	int i;
-	linked_list_node anchor, prev, curr;
+	linked_list_node anchor, curr;
 	lock_container(list);
 	anchor = get_first_anchor(list);
 	if(!anchor){	// if the lock was acquired after the list was freed
@@ -240,14 +243,15 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
 	curr = anchor->next_;
 	lock_node(curr);	// so if the node currently in use the process will wait.
 	while(curr != get_last_anchor(list)){
-		unlink_node(anchor,curr);
-		link_node((get_last_anchor(arr[i]))->prev_),(curr),(get_last_anchor(arr[i])));
+		lock_node(curr->next_);
+		unlink_node(curr);
+		link_node(get_last_node(arr[i]),curr,get_last_anchor(arr[i]));
 		curr->list_=arr[i];
 		i++;
-		i%=n;
+		if(i == n)
+			i=0;
 		unlock_node(curr);
 		curr = anchor->next_;
-		lock_node(curr);
 	}
 	unlock_and_destroy(anchor);
 	unlock_and_destroy(curr);
@@ -338,7 +342,7 @@ int list_remove(linked_list_t* list, int key){
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
-			unlink_node(prev,curr);
+			unlink_node(curr);
 			unlock_node(prev);
 			unlock_and_destroy(curr);
 			return SUCCES;
@@ -516,47 +520,38 @@ int list_compute(linked_list_t* list, int key, int (*compute_func) (void *), int
 	return NOT_EX_ERROR;
 }
 
-
 typedef struct op_wrapper_t
 {
 	linked_list_t* list;
 	op_t* op;
-} op_wrapper_t;
+} op_wrapper;
 
 /**
  * wrapper function to be used for pthread_create in list_batch
  */
 void* batch_wrapper(void* param){
-	op_wrapper_t* wrapper= (op_wrapper_t*)param;
-	linked_list_t* list= (linked_list_t*)(wrapper->op);
-	op_t* curr_op= (op_t*)(wrapper->op);
+	linked_list_t* list=(((op_wrapper*)param)->list);
+	op_t* curr_op=(((op_wrapper*)param)->op);
 	int current_key = (curr_op)->key;
-
-		if(curr_op->op==INSERT){
+		switch(curr_op->op){
+		case INSERT:
 			curr_op->result =  list_insert(list, current_key, (curr_op->data));
-		}
-
-		if((curr_op)->op==REMOVE){
+			break;
+		case REMOVE:
 			curr_op->result =  list_remove(list, current_key);
-		}
-
-		if(curr_op->op==CONTAINS){
+			break;
+		case CONTAINS:
 			curr_op->result = list_find(list, current_key);
-		}
-
-		if(curr_op->op==UPDATE){
+			break;
+		case UPDATE:
 			curr_op->result = list_update(list, current_key, curr_op->data);
-
+			break;
+		case COMPUTE:
+			curr_op->result = list_compute(list,current_key,curr_op->compute_func, ((int*)curr_op->data));
+			break;
 		}
-		int compute_result;
-		if(curr_op->op==COMPUTE){
-			curr_op->result = list_compute(list,current_key,curr_op->compute_func, &compute_result);
-			curr_op->data = (void*)(long long)compute_result;
-		}
-
-		free(param);
+		return NULL;
 }
-
 
 /**
  * list_batch : Performs a several different operations on the list.
@@ -579,20 +574,22 @@ void* batch_wrapper(void* param){
  * return value	: 0 in case of success or anything else in case of failure.
  */
 void list_batch(linked_list_t* list, int num_ops, op_t* ops){
-	if (!list||num_ops<0||!ops)
+	if (!list || num_ops<=0 || !ops)
 		return;
-
 	int i;
 	pthread_t threads[num_ops];
+	op_wrapper* wrappers[num_ops];
 	for(i=0;i<num_ops;i++){
-
-		op_wrapper_t* wrapper=(op_wrapper_t*)malloc(sizeof(op_wrapper_t));
-		wrapper->list= list;
-		wrapper->op=ops+i;
-		pthread_create(&threads[i], NULL,batch_wrapper, (void*)wrapper);
+		wrappers[i]=(op_wrapper*)malloc(sizeof(op_wrapper));
+		if (!wrappers[i])
+			return;
+		wrappers[i]->list= list;
+		wrappers[i]->op=&(ops[i]);
+		pthread_create(&(threads[i]), NULL, batch_wrapper, (void*)wrappers[i]);
 	}
 	for(i=0;i<num_ops;i++){
 		pthread_join(threads[i], NULL);
+		free(wrappers[i]);
 	}
 }
 
