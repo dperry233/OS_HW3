@@ -219,15 +219,6 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
 	if (!list || !arr || n <=0)	return PARAM_ERROR;
 	int i;
 	linked_list_node anchor, prev, curr;
-	for(i=0;i<n;i++){
-		arr[i] = list_alloc();
-		if (!(arr[i])){
-			for(;i>=0;i--)
-				list_free(arr[i]);
-			return ALLOC_ERROR;
-		}
-	}
-	i=0;
 	lock_container(list);
 	anchor = get_first_anchor(list);
 	if(!anchor){	// if the lock was acquired after the list was freed
@@ -237,6 +228,15 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
 	get_first_anchor(list) = NULL;	// unlink anchor from list
 	lock_node(anchor);
 	unlock_container(list);
+	for(i=0;i<n;i++){
+		arr[i] = list_alloc();
+		if (!(arr[i])){
+			for(;i>=0;i--)
+				list_free(arr[i]);
+			return ALLOC_ERROR;
+		}
+	}
+	i=0;
 	prev = anchor;
 	curr = anchor->next_;
 	lock_node(curr);	// so if the node currently in use the process will wait.
