@@ -237,17 +237,16 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
 		}
 	}
 	i=0;
-	prev = anchor;
 	curr = anchor->next_;
 	lock_node(curr);	// so if the node currently in use the process will wait.
 	while(curr != get_last_anchor(list)){
-		unlink_node(prev,curr);
-		link_node((get_last_anchor(arr[i])->prev_),(curr),(get_last_anchor(arr[i])));
+		unlink_node(anchor,curr);
+		link_node((get_last_anchor(arr[i]))->prev_),(curr),(get_last_anchor(arr[i])));
 		curr->list_=arr[i];
 		i++;
 		i%=n;
 		unlock_node(curr);
-		curr = prev->next_;
+		curr = anchor->next_;
 		lock_node(curr);
 	}
 	unlock_and_destroy(anchor);
@@ -287,8 +286,8 @@ int list_insert(linked_list_t* list, int key, void* data){
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	unlock_container(list);
 	curr = get_first_node(list);
+	unlock_container(list);
 	lock_node(curr);
 	while(curr){
 		if(key == curr->key_){
@@ -334,8 +333,8 @@ int list_remove(linked_list_t* list, int key){
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	unlock_container(list);
 	curr = get_first_node(list);
+	unlock_container(list);
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
@@ -375,8 +374,8 @@ int list_find(linked_list_t* list, int key){
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	unlock_container(list);
 	curr = get_first_node(list);
+	unlock_container(list);
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
@@ -414,8 +413,8 @@ int list_size(linked_list_t* list){
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	unlock_container(list);
 	curr = get_first_node(list);
+	unlock_container(list);
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		size++;
@@ -451,8 +450,8 @@ int list_update(linked_list_t* list, int key, void* data){
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	unlock_container(list);
 	curr = get_first_node(list);
+	unlock_container(list);
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
@@ -494,8 +493,8 @@ int list_compute(linked_list_t* list, int key, int (*compute_func) (void *), int
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	unlock_container(list);
 	curr = get_first_node(list);
+	unlock_container(list);
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
