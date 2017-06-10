@@ -197,6 +197,8 @@ void list_free(linked_list_t* list){
 		prev = curr;
 		curr = curr->next_;
 		lock_node(curr);
+		lock_data(prev);
+		unlock_data(prev);
 		unlock_and_destroy(prev);
 	}
 	unlock_and_destroy(anchor);
@@ -273,7 +275,7 @@ int list_split(linked_list_t* list, int n, linked_list_t** arr){
  * return value	: 0 in case of success or anything else in case of failure.
  */
 int list_insert(linked_list_t* list, int key, void* data){
-	if (!list || !data)	return PARAM_ERROR;
+	if (!list)	return PARAM_ERROR;
 	linked_list_node prev, curr, new_node;
 	new_node = (linked_list_node) malloc(sizeof(*new_node));
 	if(!new_node)
@@ -344,6 +346,8 @@ int list_remove(linked_list_t* list, int key){
 		if(key == curr->key_){
 			unlink_node(curr);
 			unlock_node(prev);
+			lock_data(curr);
+			unlock_data(curr);
 			unlock_and_destroy(curr);
 			return SUCCES;
 		}
@@ -502,10 +506,12 @@ int list_compute(linked_list_t* list, int key, int (*compute_func) (void *), int
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
-			void* data = curr->data_;
 			lock_data(curr);
+			void* data = curr->data_;
+			unlock_data(curr);
 			unlock_node(curr);
 			unlock_node(prev);
+			lock_data(curr);
 			*result = compute_func(data);
 			unlock_data(curr);
 			return SUCCES;
