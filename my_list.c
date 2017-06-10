@@ -538,7 +538,8 @@ typedef struct op_wrapper_t
 void* batch_wrapper(void* param){
 	linked_list_t* list=(((op_wrapper*)param)->list);
 	op_t* curr_op=(((op_wrapper*)param)->op);
-	int current_key = (curr_op)->key;
+	int current_key = curr_op->key;
+	int res;
 		switch(curr_op->op){
 		case INSERT:
 			curr_op->result =  list_insert(list, current_key, (curr_op->data));
@@ -553,7 +554,8 @@ void* batch_wrapper(void* param){
 			curr_op->result = list_update(list, current_key, curr_op->data);
 			break;
 		case COMPUTE:
-			curr_op->result = list_compute(list,current_key,curr_op->compute_func, ((int*)curr_op->data));
+			curr_op->result = list_compute(list,current_key,curr_op->compute_func, &res);
+			curr_op->data = (void*)(long long)res;
 			break;
 		}
 		return NULL;
@@ -591,7 +593,7 @@ void list_batch(linked_list_t* list, int num_ops, op_t* ops){
 			return;
 		wrappers[i]->list= list;
 		wrappers[i]->op=&(ops[i]);
-		pthread_create(&(threads[i]), NULL, batch_wrapper, (void*)wrappers[i]);
+		pthread_create(&(threads[i]), NULL, batch_wrapper, (void*)(wrappers[i]));
 	}
 	for(i=0;i<num_ops;i++){
 		pthread_join(threads[i], NULL);
