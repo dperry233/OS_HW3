@@ -292,8 +292,8 @@ int list_insert(linked_list_t* list, int key, void* data){
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	curr = get_first_node(list);
 	unlock_container(list);
+	curr = get_first_node(list);
 	lock_node(curr);
 	while(curr){
 		if(key == curr->key_){
@@ -339,8 +339,8 @@ int list_remove(linked_list_t* list, int key){
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	curr = get_first_node(list);
 	unlock_container(list);
+	curr = get_first_node(list);
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
@@ -382,8 +382,8 @@ int list_find(linked_list_t* list, int key){
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	curr = get_first_node(list);
 	unlock_container(list);
+	curr = get_first_node(list);
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
@@ -421,8 +421,8 @@ int list_size(linked_list_t* list){
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	curr = get_first_node(list);
 	unlock_container(list);
+	curr = get_first_node(list);
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		size++;
@@ -458,8 +458,8 @@ int list_update(linked_list_t* list, int key, void* data){
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	curr = get_first_node(list);
 	unlock_container(list);
+	curr = get_first_node(list);
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
@@ -501,8 +501,8 @@ int list_compute(linked_list_t* list, int key, int (*compute_func) (void *), int
 		return LIST_FREE_ERROR;
 	}
 	lock_node(prev);
-	curr = get_first_node(list);
 	unlock_container(list);
+	curr = get_first_node(list);
 	lock_node(curr);
 	while(curr != get_last_anchor(list)){
 		if(key == curr->key_){
